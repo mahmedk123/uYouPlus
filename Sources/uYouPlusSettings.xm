@@ -92,13 +92,15 @@ extern NSBundle *uYouPlusBundle();
 
 // Settings
 %hook YTAppSettingsPresentationData
-+ (NSArray *)settingsCategoryOrder {
-    NSArray *order = %orig;
-    NSMutableArray *mutableOrder = [order mutableCopy];
++ (NSArray <NSNumber *> *)settingsCategoryOrder {
+    NSArray <NSNumber *> *order = %orig;
     NSUInteger insertIndex = [order indexOfObject:@(1)];
-    if (insertIndex != NSNotFound)
+    if (insertIndex != NSNotFound) {
+        NSMutableArray <NSNumber *> *mutableOrder = [order mutableCopy];
         [mutableOrder insertObject:@(uYouPlusSection) atIndex:insertIndex + 1];
-    return mutableOrder;
+        order = mutableOrder.copy;
+    }
+    return order;
 }
 %end
 
@@ -295,6 +297,7 @@ extern NSBundle *uYouPlusBundle();
     SWITCH(LOC(@"HIDE_CLIP_BUTTON"), LOC(@"HIDE_CLIP_BUTTON_DESC"), kHideClipButton);
     SWITCH(LOC(@"HIDE_DOWNLOAD_BUTTON"), LOC(@"HIDE_DOWNLOAD_BUTTON_DESC"), kHideDownloadButton);
     SWITCH(LOC(@"STOCK_VOLUME_HUD"), LOC(@"STOCK_VOLUME_HUD_DESC"), kStockVolumeHUD);
+    SWITCH(LOC(@"REPLACE_YT_DOWNLOAD_WITH_UYOU"), LOC(@"REPLACE_YT_DOWNLOAD_WITH_UYOU_DESC"), kReplaceYTDownloadWithuYou);
 
     # pragma mark - Video controls overlay options
     SECTION_HEADER(LOC(@"VIDEO_CONTROLS_OVERLAY_OPTIONS"));

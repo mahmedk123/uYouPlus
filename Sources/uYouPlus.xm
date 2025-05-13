@@ -49,11 +49,20 @@ NSBundle *tweakBundle = uYouPlusBundle();
 // Hide useless buttons under the video player by @PoomSmart
 static BOOL findCell(ASNodeController *nodeController, NSArray <NSString *> *identifiers) {
     for (id child in [nodeController children]) {
+        if ([child isKindOfClass:%c(ELMComponent)]) {
+            if ([[child templateURI] containsString:@"video_action_button_with_vm_input"])
+                return findCell([child materializedInstance], identifiers);
+            for (NSString *identifier in identifiers) {
+                if ([[child templateURI] containsString:identifier])
+                    return YES;
+            }
+        }
+
         if ([child isKindOfClass:%c(ELMNodeController)]) {
             NSArray <ELMComponent *> *elmChildren = [(ELMNodeController *)child children];
             for (ELMComponent *elmChild in elmChildren) {
                 for (NSString *identifier in identifiers) {
-                    if ([[elmChild description] containsString:identifier])
+                    if ([[elmChild templateURI] containsString:identifier])
                         return YES;
                 }
             }
@@ -76,7 +85,6 @@ static BOOL findCell(ASNodeController *nodeController, NSArray <NSString *> *ide
 }
 
 %hook ASCollectionView
-
 - (CGSize)sizeForElement:(ASCollectionElement *)element {
     if ([self.accessibilityIdentifier isEqualToString:@"id.video.scrollable_action_bar"]) {
         ASCellNode *node = [element node];
@@ -95,7 +103,6 @@ static BOOL findCell(ASNodeController *nodeController, NSArray <NSString *> *ide
     }
     return %orig;
 }
-
 %end
 
 // Use stock iOS volume HUD
@@ -103,6 +110,46 @@ static BOOL findCell(ASNodeController *nodeController, NSArray <NSString *> *ide
 %hook YTColdConfig
 - (BOOL)iosUseSystemVolumeControlInFullscreen {
     return IS_ENABLED(kStockVolumeHUD) ? YES : %orig;
+}
+%end
+
+// Replace YouTube's download with uYou's
+YTMainAppControlsOverlayView *controlsOverlayView;
+%hook YTMainAppControlsOverlayView
+- (id)initWithDelegate:(id)arg1 {
+    controlsOverlayView = %orig;
+    return controlsOverlayView;
+}
+%end
+%hook YTElementsDefaultSheetController
++ (void)showSheetController:(id)arg1 showCommand:(id)arg2 commandContext:(id)arg3 handler:(id)arg4 {
+    if (IS_ENABLED(kReplaceYTDownloadWithuYou) && [arg2 isKindOfClass:%c(ELMPBShowActionSheetCommand)]) {
+        ELMPBShowActionSheetCommand *showCommand = (ELMPBShowActionSheetCommand *)arg2;
+        NSArray *listOptions = [showCommand listOptionArray];
+        for (ELMPBElement *element in listOptions) {
+            ELMPBProperties *properties = [element properties];
+            ELMPBIdentifierProperties *identifierProperties = [properties firstSubmessage];
+            // 19.30.2
+            if ([identifierProperties respondsToSelector:@selector(identifier)]) {
+                NSString *identifier = [identifierProperties identifier];
+                if ([identifier containsString:@"offline_upsell_dialog"]) {
+                    if ([controlsOverlayView respondsToSelector:@selector(uYou)]) {
+                        [controlsOverlayView uYou];
+                    }
+                    return;
+                }
+            }
+            // 19.20.2
+            NSString *description = [identifierProperties description];
+            if ([description containsString:@"offline_upsell_dialog"]) {
+                if ([controlsOverlayView respondsToSelector:@selector(uYou)]) {
+                    [controlsOverlayView uYou];
+                }
+                return;
+            }
+        }
+    }
+    %orig;
 }
 %end
 
@@ -257,7 +304,13 @@ static BOOL findCell(ASNodeController *nodeController, NSArray <NSString *> *ide
 // Hide "Play next in queue" - qnblackcat/uYouPlus#1138
 %hook YTMenuItemVisibilityHandler
 - (BOOL)shouldShowServiceItemRenderer:(YTIMenuConditionalServiceItemRenderer *)renderer {
-    return IS_ENABLED(kHidePlayNextInQueue) && renderer.icon.iconType == 251 && renderer.secondaryIcon.iconType == 741 ? NO : %orig;
+    return IS_ENABLED(kHidePlayNextInQueue) && renderer.icon.iconType == YT_QUEUE_PLAY_NEXT ? NO : %orig;
+}
+%end
+
+%hook YTMenuItemVisibilityHandlerImpl
+- (BOOL)shouldShowServiceItemRenderer:(YTIMenuConditionalServiceItemRenderer *)renderer {
+    return IS_ENABLED(kHidePlayNextInQueue) && renderer.icon.iconType == YT_QUEUE_PLAY_NEXT ? NO : %orig;
 }
 %end
 
@@ -352,28 +405,6 @@ static BOOL findCell(ASNodeController *nodeController, NSArray <NSString *> *ide
 }
 %end
 
-// Hide search ads by @PoomSmart - https://github.com/PoomSmart/YouTube-X
-// %hook YTIElementRenderer
-// - (NSData *)elementData {
-//     if (self.hasCompatibilityOptions && self.compatibilityOptions.hasAdLoggingData)
-//         return nil;
-//     return %orig;
-// }
-// %end
-
-// %hook YTSectionListViewController
-// - (void)loadWithModel:(YTISectionListRenderer *)model {
-//     NSMutableArray <YTISectionListSupportedRenderers *> *contentsArray = model.contentsArray;
-//     NSIndexSet *removeIndexes = [contentsArray indexesOfObjectsPassingTest:^BOOL(YTISectionListSupportedRenderers *renderers, NSUInteger idx, BOOL *stop) {
-//         YTIItemSectionRenderer *sectionRenderer = renderers.itemSectionRenderer;
-//         YTIItemSectionSupportedRenderers *firstObject = [sectionRenderer.contentsArray firstObject];
-//         return firstObject.hasPromotedVideoRenderer || firstObject.hasCompactPromotedVideoRenderer || firstObject.hasPromotedVideoInlineMutedRenderer;
-//     }];
-//     [contentsArray removeObjectsAtIndexes:removeIndexes];
-//     %orig;
-// }
-// %end
-
 // A/B flags
 %hook YTColdConfig 
 // YouRememberCaption: https://poomsmart.github.io/repo/depictions/youremembercaption.html
@@ -420,5 +451,8 @@ static BOOL findCell(ASNodeController *nodeController, NSArray <NSString *> *ide
     }
     if (![allKeys containsObject:kGoogleSigninFix]) { 
        [[NSUserDefaults standardUserDefaults] setBool:YES forKey:kGoogleSigninFix];
+    }
+    if (![allKeys containsObject:kReplaceYTDownloadWithuYou]) {
+        [[NSUserDefaults standardUserDefaults] setBool:YES forKey:kReplaceYTDownloadWithuYou];
     }
 }
